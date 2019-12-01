@@ -17,15 +17,44 @@ func sendWorld(p golParams, world [][]byte, d distributorChans){
 	}
 }
 
-func isAlive(p golParams, x, y int, world[][]byte) bool{
-	x += p.imageWidth
-	x %= p.imageWidth
-	y += p.imageHeight
-	y %= p.imageHeight
+func isAlive(width, x, y int, world [][]byte) bool {
+	x += width
+	x %= width
 	if world[y][x] == 0 {
 		return false
 	} else {
 		return true
+	}
+}
+
+func worker(workerHeight, width int, in <-chan byte, out chan<- byte){
+	world := make([][]byte, width)
+	for i := range world{
+		world[i] = make([]byte, width)
+	}
+	for {
+		for y := 0; y < workerHeight; y++ {
+			for x := 0; x < width; x++ {
+				world[y][x] = <-in
+			}
+		}
+		for y := 1; y < workerHeight-1; y++ {
+			for x := 0; x < width; x++ {
+				alive := 0
+				for i := -1; i <= 1; i++ {
+					for j := -1; j <= 1; j++ {
+						if (j != 0 || i != 0) && isAlive(width, x+i, y+j, world) {
+							alive++
+						}
+					}
+				}
+				if alive == 3 || (isAlive(width, x, y, world) && alive == 2) {
+					out <- 1
+				} else {
+					out <- 0
+				}
+			}
+		}
 	}
 }
 
@@ -53,33 +82,39 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
-	temp := make([][]byte, p.imageHeight)
-	for i := range world {
-		temp[i] = make([]byte, p.imageWidth)
-		copy(temp[i], world[i])
+	workerHeight := p.imageHeight / p.threads
+	in := make([]chan byte, p.threads)
+	out := make([]chan byte, p.threads)
+
+	for i := 0; i < p.threads; i++{
+		in[i] = make(chan byte)
+		out[i] = make(chan byte)
+	}
+
+	for i := 0; i < p.threads; i++{
+		go worker(workerHeight+2, p.imageWidth, in[i], out[i])
 	}
 
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns := 0; turns < p.turns; turns++ {
-		for y := 0; y < p.imageHeight; y++ {
-			for x := 0; x < p.imageWidth; x++ {
-				alive := 0
-				for i := -1; i <= 1; i++ {
-					for j := -1; j <= 1; j++ {
-						if (j != 0 || i != 0) && isAlive(p, x+i, y+j, temp){
-							alive++
-						}
+		for i := 0; i < p.threads; i++{
+			for y := 0; y < (workerHeight+2); y++{
+				for x := 0; x < p.imageWidth; x++{
+					threadHeight := y+(i*workerHeight)-1
+					if threadHeight < 0 {
+						threadHeight += p.imageHeight
 					}
-				}
-				if alive == 3 || (isAlive(p, x, y, temp) && alive == 2){
-					world[y][x] = 1
-				}else{
-					world[y][x] = 0
+					threadHeight %= p.imageHeight
+					in[i] <- world[threadHeight][x]
 				}
 			}
 		}
-		for i := range world{
-			copy(temp[i], world[i])
+		for i := 0; i < p.threads; i++{
+			for y := 0; y < workerHeight; y++{
+				for x := 0; x < p.imageWidth; x++{
+					world[y+(i*workerHeight)][x] = <- out[i]
+				}
+			}
 		}
 	}
 
