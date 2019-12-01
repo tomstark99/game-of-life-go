@@ -6,6 +6,58 @@ import (
 	"strings"
 )
 
+func sendWorld(p golParams, world [][]byte, d distributorChans){
+	d.io.command <- ioOutput
+	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight) + "-" + strconv.Itoa(p.turns)}, "x")
+
+	for y := range world{
+		for x := range world[y]{
+			d.io.outputVal <- world[y][x]
+		}
+	}
+}
+
+func isAlive(width, x, y int, world [][]byte) bool {
+	x += width
+	x %= width
+	if world[y][x] == 0 {
+		return false
+	} else {
+		return true
+	}
+}
+
+func worker(workerHeight, width int, in <-chan byte, out chan<- byte){
+	world := make([][]byte, width)
+	for i := range world{
+		world[i] = make([]byte, width)
+	}
+	for {
+		for y := 0; y < workerHeight; y++ {
+			for x := 0; x < width; x++ {
+				world[y][x] = <-in
+			}
+		}
+		for y := 1; y < workerHeight-1; y++ {
+			for x := 0; x < width; x++ {
+				alive := 0
+				for i := -1; i <= 1; i++ {
+					for j := -1; j <= 1; j++ {
+						if (j != 0 || i != 0) && isAlive(width, x+i, y+j, world) {
+							alive++
+						}
+					}
+				}
+				if alive == 3 || (isAlive(width, x, y, world) && alive == 2) {
+					out <- 1
+				} else {
+					out <- 0
+				}
+			}
+		}
+	}
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p golParams, d distributorChans, alive chan []cell) {
 
@@ -30,12 +82,38 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
+	workerHeight := p.imageHeight / p.threads
+	in := make([]chan byte, p.threads)
+	out := make([]chan byte, p.threads)
+
+	for i := 0; i < p.threads; i++{
+		in[i] = make(chan byte)
+		out[i] = make(chan byte)
+	}
+
+	for i := 0; i < p.threads; i++{
+		go worker(workerHeight+2, p.imageWidth, in[i], out[i])
+	}
+
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns := 0; turns < p.turns; turns++ {
-		for y := 0; y < p.imageHeight; y++ {
-			for x := 0; x < p.imageWidth; x++ {
-				// Placeholder for the actual Game of Life logic: flips alive cells to dead and dead cells to alive.
-				world[y][x] = world[y][x] ^ 0xFF
+		for i := 0; i < p.threads; i++{
+			for y := 0; y < (workerHeight+2); y++{
+				for x := 0; x < p.imageWidth; x++{
+					threadHeight := y+(i*workerHeight)-1
+					if threadHeight < 0 {
+						threadHeight += p.imageHeight
+					}
+					threadHeight %= p.imageHeight
+					in[i] <- world[threadHeight][x]
+				}
+			}
+		}
+		for i := 0; i < p.threads; i++{
+			for y := 0; y < workerHeight; y++{
+				for x := 0; x < p.imageWidth; x++{
+					world[y+(i*workerHeight)][x] = <- out[i]
+				}
 			}
 		}
 	}
@@ -50,6 +128,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 			}
 		}
 	}
+
+	sendWorld(p, world, d)
 
 	// Make sure that the Io has finished any output before exiting.
 	d.io.command <- ioCheckIdle
