@@ -6,6 +6,29 @@ import (
 	"strings"
 )
 
+func sendWorld(p golParams, world [][]byte, d distributorChans){
+	d.io.command <- ioOutput
+	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight) + "-" + strconv.Itoa(p.turns)}, "x")
+
+	for y := range world{
+		for x := range world[y]{
+			d.io.outputVal <- world[y][x]
+		}
+	}
+}
+
+func isAlive(p golParams, x, y int, world[][]byte) bool{
+	x += p.imageWidth
+	x %= p.imageWidth
+	y += p.imageHeight
+	y %= p.imageHeight
+	if world[y][x] == 0 {
+		return false
+	} else {
+		return true
+	}
+}
+
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p golParams, d distributorChans, alive chan []cell) {
 
@@ -30,13 +53,33 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
+	temp := make([][]byte, p.imageHeight)
+	for i := range world {
+		temp[i] = make([]byte, p.imageWidth)
+		copy(temp[i], world[i])
+	}
+
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns := 0; turns < p.turns; turns++ {
 		for y := 0; y < p.imageHeight; y++ {
 			for x := 0; x < p.imageWidth; x++ {
-				// Placeholder for the actual Game of Life logic: flips alive cells to dead and dead cells to alive.
-				world[y][x] = world[y][x] ^ 0xFF
+				alive := 0
+				for i := -1; i <= 1; i++ {
+					for j := -1; j <= 1; j++ {
+						if (j != 0 || i != 0) && isAlive(p, x+i, y+j, temp){
+							alive++
+						}
+					}
+				}
+				if alive == 3 || (isAlive(p, x, y, temp) && alive == 2){
+					world[y][x] = 1
+				}else{
+					world[y][x] = 0
+				}
 			}
+		}
+		for i := range world{
+			copy(temp[i], world[i])
 		}
 	}
 
@@ -50,6 +93,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 			}
 		}
 	}
+
+	sendWorld(p, world, d)
 
 	// Make sure that the Io has finished any output before exiting.
 	d.io.command <- ioCheckIdle
