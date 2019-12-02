@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func sendWorld(p golParams, world [][]byte, d distributorChans, turns int){
@@ -15,6 +16,18 @@ func sendWorld(p golParams, world [][]byte, d distributorChans, turns int){
 			d.io.outputVal <- world[y][x]
 		}
 	}
+}
+
+func printAlive(p golParams, world [][]byte){
+	alive := 0
+	for y := 0; y < p.imageHeight; y++{
+		for x := 0; x < p.imageWidth; x++{
+			if world[y][x] == 0xFF {
+				alive++
+			}
+		}
+	}
+	fmt.Println("alive cells: ", alive)
 }
 
 func isAlive(width, x, y int, world [][]byte) bool {
@@ -82,6 +95,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
+	ticker := time.NewTicker(2 * time.Second)
+
 	workerHeight := p.imageHeight / p.threads
 	in := make([]chan byte, p.threads)
 	out := make([]chan byte, p.threads)
@@ -123,6 +138,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 					}
 				}
 			}
+		case <-ticker.C:
+			go printAlive(p, world)
 		default:
 			for i := 0; i < p.threads; i++{
 				for y := 0; y < (workerHeight+2); y++{
