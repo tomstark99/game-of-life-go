@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-func sendWorld(p golParams, world [][]byte, d distributorChans){
+func sendWorld(p golParams, world [][]byte, d distributorChans, turns int){
 	d.io.command <- ioOutput
-	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight) + "-" + strconv.Itoa(p.turns)}, "x")
+	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight) + "-turns-" + strconv.Itoa(turns)}, "x")
 
 	for y := range world{
 		for x := range world[y]{
@@ -49,7 +49,7 @@ func worker(workerHeight, width int, in <-chan byte, out chan<- byte){
 					}
 				}
 				if alive == 3 || (isAlive(width, x, y, world) && alive == 2) {
-					out <- 1
+					out <- 0xFF
 				} else {
 					out <- 0
 				}
@@ -87,8 +87,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 	out := make([]chan byte, p.threads)
 
 	for i := 0; i < p.threads; i++{
-		in[i] = make(chan byte)
-		out[i] = make(chan byte)
+		in[i] = make(chan byte, p.imageHeight)
+		out[i] = make(chan byte, p.imageHeight)
 	}
 
 	for i := 0; i < p.threads; i++{
@@ -96,27 +96,57 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 	}
 
 	// Calculate the new state of Game of Life after the given number of turns.
-	for turns := 0; turns < p.turns; turns++ {
-		for i := 0; i < p.threads; i++{
-			for y := 0; y < (workerHeight+2); y++{
-				for x := 0; x < p.imageWidth; x++{
+	loop1:for turns := 0; turns < p.turns; turns++ {
+		select {
+		case keyValue := <-d.key:
+			char := string(keyValue)
+			if char == "s" {
+				fmt.Println("s pressed")
+				go sendWorld(p, world, d, turns)
+			}
+			if char == "q" {
+				fmt.Println("q pressed")
+				break loop1
+			}
+			if char == "p" {
+				fmt.Println("p pressed, pausing at turn " + strconv.Itoa(turns))
+				fmt.Println("press p to continue")
+				loop2:for{
+					select {
+					case keyValue := <-d.key:
+						char := string(keyValue)
+						if char == "p" {
+							fmt.Println("continuing")
+							break loop2
+						}
+					default:
+					}
+				}
+			}
+		default:
+			for i := 0; i < p.threads; i++{
+				for y := 0; y < (workerHeight+2); y++{
 					threadHeight := y+(i*workerHeight)-1
 					if threadHeight < 0 {
 						threadHeight += p.imageHeight
 					}
 					threadHeight %= p.imageHeight
-					in[i] <- world[threadHeight][x]
+					for x := 0; x < p.imageWidth; x++{
+						in[i] <- world[threadHeight][x]
+					}
 				}
 			}
-		}
-		for i := 0; i < p.threads; i++{
-			for y := 0; y < workerHeight; y++{
-				for x := 0; x < p.imageWidth; x++{
-					world[y+(i*workerHeight)][x] = <- out[i]
+			for i := 0; i < p.threads; i++{
+				for y := 0; y < workerHeight; y++{
+					for x := 0; x < p.imageWidth; x++{
+						world[y+(i*workerHeight)][x] = <- out[i]
+					}
 				}
 			}
 		}
 	}
+
+	sendWorld(p, world, d, p.turns)
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell
@@ -128,8 +158,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 			}
 		}
 	}
-
-	sendWorld(p, world, d)
 
 	// Make sure that the Io has finished any output before exiting.
 	d.io.command <- ioCheckIdle
