@@ -17,16 +17,6 @@ func sendWorld(p golParams, world [][]byte, d distributorChans, turns int){
 	}
 }
 
-func isAlive(width, x, y int, world [][]byte) bool {
-	x += width
-	x %= width
-	if world[y][x] == 0 {
-		return false
-	} else {
-		return true
-	}
-}
-
 func worker(workerHeight, width int, in <-chan byte, out chan<- byte){
 	world := make([][]byte, width)
 	for i := range world{
@@ -40,15 +30,25 @@ func worker(workerHeight, width int, in <-chan byte, out chan<- byte){
 		}
 		for y := 1; y < workerHeight-1; y++ {
 			for x := 0; x < width; x++ {
-				alive := 0
-				for i := -1; i <= 1; i++ {
-					for j := -1; j <= 1; j++ {
-						if (j != 0 || i != 0) && isAlive(width, x+i, y+j, world) {
-							alive++
-						}
-					}
+				xRight := x+1
+				if xRight >= width {
+					xRight %= width
 				}
-				if alive == 3 || (isAlive(width, x, y, world) && alive == 2) {
+				xLeft := x-1
+				if xLeft < 0 {
+					xLeft += width
+				}
+				count := 0
+				count = int(world[y-1][xLeft]) +
+					int(world[y-1][x]) +
+					int(world[y-1][xRight]) +
+					int(world[y][xLeft]) +
+					int(world[y][xRight]) +
+					int(world[y+1][xLeft]) +
+					int(world[y+1][x]) +
+					int(world[y+1][xRight])
+				count /= 255
+				if count == 3 || (world[y][x] == 0xFF && count == 2) {
 					out <- 0xFF
 				} else {
 					out <- 0
