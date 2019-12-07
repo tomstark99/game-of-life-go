@@ -17,18 +17,6 @@ func sendWorld(p golParams, world [][]byte, d distributorChans){
 	}
 }
 
-func isAlive(p golParams, x, y int, world[][]byte) bool{
-	x += p.imageWidth
-	x %= p.imageWidth
-	y += p.imageHeight
-	y %= p.imageHeight
-	if world[y][x] == 0 {
-		return false
-	} else {
-		return true
-	}
-}
-
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p golParams, d distributorChans, alive chan []cell) {
 
@@ -63,17 +51,35 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 	for turns := 0; turns < p.turns; turns++ {
 		for y := 0; y < p.imageHeight; y++ {
 			for x := 0; x < p.imageWidth; x++ {
-				alive := 0
-				for i := -1; i <= 1; i++ {
-					for j := -1; j <= 1; j++ {
-						if (j != 0 || i != 0) && isAlive(p, x+i, y+j, temp){
-							alive++
-						}
-					}
+				yTop := y + 1
+				if yTop >= p.imageHeight {
+					yTop %= p.imageHeight
 				}
-				if alive == 3 || (isAlive(p, x, y, temp) && alive == 2){
-					world[y][x] = 1
-				}else{
+				xRight := x + 1
+				if xRight >= p.imageWidth {
+					xRight %= p.imageWidth
+				}
+				yBot := y - 1
+				if yBot < 0 {
+					yBot += p.imageHeight
+				}
+				xLeft := x - 1
+				if xLeft < 0 {
+					xLeft += p.imageWidth
+				}
+				count := 0
+				count = int(temp[yBot][xLeft]) +
+					int(temp[yBot][x]) +
+					int(temp[yBot][xRight]) +
+					int(temp[y][xLeft]) +
+					int(temp[y][xRight]) +
+					int(temp[yTop][xLeft]) +
+					int(temp[yTop][x]) +
+					int(temp[yTop][xRight])
+				count /= 255
+				if count == 3 || (temp[y][x] == 0xFF && count == 2) {
+					world[y][x] = 0xFF
+				} else {
 					world[y][x] = 0
 				}
 			}
