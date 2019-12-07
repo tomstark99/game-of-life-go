@@ -98,6 +98,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 	ticker := time.NewTicker(2 * time.Second)
 
 	workerHeight := p.imageHeight / p.threads
+	extra := p.imageHeight % p.threads
 	in := make([]chan byte, p.threads)
 	out := make([]chan byte, p.threads)
 
@@ -106,8 +107,16 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		out[i] = make(chan byte, p.imageHeight)
 	}
 
-	for i := 0; i < p.threads; i++{
-		go worker(workerHeight+2, p.imageWidth, in[i], out[i])
+	if powerOfTwo(p) {
+		for i := 0; i < p.threads; i++ {
+			go worker(workerHeight+2, p.imageWidth, in[i], out[i])
+		}
+	} else {
+		extra := p.imageHeight % p.threads
+		for i := 0; i < p.threads-1; i++{
+			go worker(workerHeight+2, p.imageWidth, in[i], out[i])
+		}
+		go worker(workerHeight+2+extra, p.imageWidth, in[p.threads-1], out[p.threads-1])
 	}
 
 	// Calculate the new state of Game of Life after the given number of turns.
@@ -142,7 +151,11 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 			go printAlive(p, world)
 		default:
 			for i := 0; i < p.threads; i++{
-				for y := 0; y < (workerHeight+2); y++{
+				threadHeight := workerHeight + 2
+				if i == p.threads-1 && !powerOfTwo(p) {
+					threadHeight += extra
+				}
+				for y := 0; y < threadHeight; y++{
 					threadHeight := y+(i*workerHeight)-1
 					if threadHeight < 0 {
 						threadHeight += p.imageHeight
@@ -157,6 +170,13 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 				for y := 0; y < workerHeight; y++{
 					for x := 0; x < p.imageWidth; x++{
 						world[y+(i*workerHeight)][x] = <- out[i]
+					}
+				}
+			}
+			if !powerOfTwo(p) {
+				for i := 0; i < extra; i++ {
+					for x := 0; x < p.imageWidth; x++ {
+						world[i+(p.threads*workerHeight)][x] = <-out[p.threads-1]
 					}
 				}
 			}

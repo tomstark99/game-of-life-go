@@ -62,6 +62,10 @@ type ioChans struct {
 	distributor ioToDistributor
 }
 
+func powerOfTwo(p golParams) bool {
+	return (p.threads & (p.threads-1)) == 0
+}
+
 // gameOfLife is the function called by the testing framework.
 // It makes some channels and starts relevant goroutines.
 // It places the created channels in the relevant structs.
